@@ -1,0 +1,111 @@
+# Scanner checks
+
+What `scripts/scan.py` reports, why, the usual verdict, and when to ignore it. A finding is a lead: the scanner can't
+tell a gotcha from noise, so read the line before deciding.
+
+- [Load classes and severity](#load-classes-and-severity)
+- [Size (RS1xx)](#size-rs1xx)
+- [Wording (RS2xx, RS3xx)](#wording-rs2xx-rs3xx)
+- [Duplicates and conflicts (RS4xx, RS5xx)](#duplicates-and-conflicts-rs4xx-rs5xx)
+- [Bloat (RS6xx)](#bloat-rs6xx)
+- [Stale references (RS7xx)](#stale-references-rs7xx)
+- [Derivable content (RS8xx)](#derivable-content-rs8xx)
+- [Metadata (RS9xx)](#metadata-rs9xx)
+- [Options](#options)
+
+## Load classes and severity
+
+Each file gets a load class, based on how Claude Code reads it:
+
+| Class | Files | Cost |
+|---|---|---|
+| every session | root `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, ancestors up to the git root, their `@imports`, `.claude/rules/*.md` without `paths:`; for skills, agents and commands only the name and description | read on every turn |
+| on demand | nested `CLAUDE.md`, rules with `paths:`, skill and agent bodies, files under a skill folder | read when the work touches them |
+| other agents | `AGENTS.md` when a `CLAUDE.md` exists here or above (Claude Code reads only CLAUDE.md then), `.agents/skills` | not read by Claude Code unless imported |
+
+Block-level HTML comments in CLAUDE.md are not counted, because Claude Code strips them before Claude sees the file.
+Token numbers are characters divided by four, an estimate; `/context` in Claude Code shows live numbers.
+
+Severity: **warn** for wording and bloat in files read every session, and for structural problems anywhere (missing
+paths and scripts, broken metadata). **info** for the same patterns in on-demand files, and for heuristics that need a
+closer look. `--strict` exits 1 when there is any warning.
+
+## Size (RS1xx)
+
+| ID | Flags | Usual verdict |
+|---|---|---|
+| RS101 | Every-session memory file over the line budget (default 200, `--max-lines`) | Move procedures and path-specific rules out; delete derivable content |
+| RS102 | SKILL.md body over 500 lines | Move detail into `references/` files linked from SKILL.md |
+| RS103 | AGENTS.md that Claude Code isn't reading, because a CLAUDE.md exists | Import it with `@AGENTS.md`, or confirm it's meant for other agents only |
+
+## Wording (RS2xx, RS3xx)
+
+| ID | Flags | Usual verdict |
+|---|---|---|
+| RS201 | ALWAYS, NEVER, MUST, DO NOT (and WAJIB, JANGAN, HARUS, SELALU, DILARANG) with no reason on the line or the next | Rewrite with the outcome and reason; enforce if a miss is costly; delete if the code already shows it |
+| RS202 | Shouting: all-caps lines, IMPORTANT, CRITICAL, WARNING, alarm emoji, or capitalized absolutes that do give a reason | Rewrite in plain words |
+| RS301 | Persona and scaffolding: "you are an expert", "think step by step", "double-check your work", "be thorough", "it is crucial that" | Delete; keep a concrete verification command if one exists |
+
+False positives: a quoted error message or an acronym-heavy line can trip RS202. Lowercase "never" and "always" are not
+flagged, so read every-session files for bare rules the scanner can't see.
+
+## Duplicates and conflicts (RS4xx, RS5xx)
+
+| ID | Flags | Usual verdict |
+|---|---|---|
+| RS401 | The same instruction (after normalizing case, markup and leading IMPORTANT/NOTE) in two or more places | Keep the copy in the layer where it applies, delete the others |
+| RS402 | Near-duplicates: same polarity, nearly the same content words | Merge |
+| RS501 | Possible conflict: one line negates what another asks for, with overlapping content words | Decide with the user which holds and where; rewrite as one rule with a scope |
+
+These compare content words, so they miss paraphrases and sometimes pair unrelated lines that share vocabulary (RS501
+is the noisiest). Read both lines before reporting a conflict, and look for contradictions the scanner can't see.
+
+## Bloat (RS6xx)
+
+| ID | Flags | Usual verdict |
+|---|---|---|
+| RS601 | Fenced code block over 12 lines in an every-session file (over 40 elsewhere) | Replace with a pointer to a real file that shows the pattern |
+| RS602 | Run of 8 or more numbered steps or checklist items | In an every-session file, move to a skill; in a skill, trim steps Claude does anyway |
+| RS603 | Section over 40 lines in an every-session file | Consider a skill, a `paths:` rule or a nested CLAUDE.md |
+| RS605 | Three or more dated log entries in an every-session file | Delete; auto-memory and git hold history |
+
+## Stale references (RS7xx)
+
+| ID | Flags | Usual verdict |
+|---|---|---|
+| RS701 | A path in backticks, a Markdown link or an `@import` that doesn't exist (relative to the file, then the repo root) | Fix the path if the target moved; otherwise delete the reference |
+| RS702 | `npm/pnpm/yarn/bun run X`, `npm test`, `composer X` or `make X` with no matching script or target in the nearest manifest | Fix the command or add the script |
+
+To limit noise, the scanner skips absolute and home paths, URLs, globs, placeholders, aliases like `@/components`,
+runtime files (`*.log`, `*.sqlite`), common untracked files (`.env`), slash-separated words whose first segment doesn't
+exist (`feature/x`, `origin/main`), and partial paths that exist deeper in the tree. Bare filenames that exist nowhere
+in the repo are reported as info.
+
+## Derivable content (RS8xx)
+
+| ID | Flags | Usual verdict |
+|---|---|---|
+| RS801 | Four or more short list or table lines in an every-session file naming dependencies found in package.json, composer.json, pubspec.yaml, requirements.txt, pyproject.toml or go.mod | Delete; keep the *why* behind a surprising choice |
+| RS802 | Directory tree of six or more lines | Delete, or keep only the part that surprises (a folder that isn't what its name says) |
+
+## Metadata (RS9xx)
+
+| ID | Flags | Usual verdict |
+|---|---|---|
+| RS901 | Skill or agent with no frontmatter, or missing `name` or `description` | Add them; the description decides when it's used |
+| RS902 | Skill name that isn't lowercase-hyphenated, is over 64 characters, or doesn't match its folder | Rename to match the Agent Skills spec |
+| RS903 | Skill description over 1,024 characters or containing angle brackets | Shorten; uploads to claude.ai reject both |
+| RS904 | Skill description under 40 characters | Say what it does and when to use it, with the phrases users say |
+| RS905 | Skill, agent or command pinned to a pre-Claude-5 model | Keep scaffolding that model needs, or ask whether the pin is still wanted |
+
+## Options
+
+```text
+scan.py [ROOT] [--format table|json] [--json] [--save FILE] [--compare FILE]
+        [--strict] [--include-user] [--max-lines N]
+```
+
+- `--save FILE` writes the JSON report as a snapshot; `--compare FILE` adds a before/after section against it.
+- `--include-user` also reads `~/.claude/CLAUDE.md`, rules, skills, agents and commands.
+- `--strict` exits 1 when any finding is a warning, for CI.
+- Exit status 2 means a usage error (bad path, unreadable snapshot).

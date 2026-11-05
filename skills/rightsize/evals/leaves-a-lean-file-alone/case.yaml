@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: leaves-a-lean-file-alone
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The skill scans the repo, finds no warnings, reads the short CLAUDE.md and says it is already in good
+  shape. It keeps every gotcha (no src/db imports in client components, integer cents, the Postgres port
+  tests need, Indonesian PR descriptions), proposes at most a few small changes, and edits nothing.

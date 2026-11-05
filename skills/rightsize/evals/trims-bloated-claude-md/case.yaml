@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: trims-bloated-claude-md
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  A report grouped by verdict (rewrite, move, enforce, delete, keep) with file:line locations, estimated
+  tokens loaded every session before and after, and a proposed diff. The deploy steps and the review
+  checklist move into skills; the persona, step-by-step scaffolding, tech stack list, directory tree and
+  dated notes are deleted; bare ALWAYS/NEVER rules are rewritten with reasons; migrate:fresh and .env
+  become enforcement candidates; the money-in-cents gotcha is kept; the conflict between "NEVER add
+  comments" and the testing rule is raised. No file is changed.
