@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.DS_Store
+# claude plugin eval output and skill-creator workspaces
+skills/rightsize/evals/results/
+*-workspace/

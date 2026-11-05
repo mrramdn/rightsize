@@ -1,0 +1,14 @@
+{
+  "name": "rightsize",
+  "owner": {
+    "name": "mrramdn"
+  },
+  "description": "Marketplace for the rightsize Claude Code plugin.",
+  "plugins": [
+    {
+      "name": "rightsize",
+      "source": "./",
+      "description": "Audit and slim down CLAUDE.md, AGENTS.md, rules, skills and subagents with the Claude 5 context-engineering rules."
+    }
+  ]
+}
