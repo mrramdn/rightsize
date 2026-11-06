@@ -1,11 +1,11 @@
 ---
 name: rightsize
-description: Audit and slim down the context Claude Code loads (CLAUDE.md, CLAUDE.local.md, AGENTS.md, .claude/rules, skills, subagents, slash commands) using the Claude 5 context-engineering rules, then propose a reviewed diff with before/after token estimates. A bundled scanner finds bare ALWAYS/NEVER rules, duplicated or conflicting instructions, inline playbooks and code, stale paths and scripts, and content Claude can read from the repo itself. Use when the user wants to audit, trim, clean up, rightsize or modernize CLAUDE.md, AGENTS.md, rules, skills or agent prompts; says their instructions are bloated, ignored, contradictory or eating context; or is moving prompts written for older models to Claude 5, even if they never say "rightsize".
+description: Audit and slim down the context Claude Code loads (CLAUDE.md, CLAUDE.local.md, AGENTS.md, .claude/rules, skills, subagents, slash commands) using the Claude 5 context-engineering rules, then propose a reviewed diff with before/after token estimates. A bundled scanner finds bare ALWAYS/NEVER rules, duplicated or conflicting instructions, inline playbooks and code, stale paths and scripts, and content Claude can read from the repo itself. Use when the user wants to audit, trim, clean up, rightsize or modernize CLAUDE.md, AGENTS.md, rules, skills or agent prompts; says their instructions are bloated, ignored, contradictory or eating context; wants a lean CLAUDE.md for a new project or after /init; or is moving prompts written for older models to Claude 5, even if they never say "rightsize".
 license: MIT
 compatibility: Built for Claude Code. scripts/scan.py needs Python 3.8 or newer and uses only the standard library. Other Agent Skills clients that can run shell commands work too.
 metadata:
   author: mrramdn
-  version: "0.1.0"
+  version: "0.1.1"
 ---
 
 # rightsize
@@ -114,3 +114,19 @@ under **Needs your call** instead of guessing.
   keep the scaffolding that model relies on, or ask whether the pin is still wanted.
 - **AGENTS.md serves other agents too.** Keep tool-neutral content there and Claude-specific notes in CLAUDE.md, with
   CLAUDE.md importing it (`@AGENTS.md`) rather than duplicating it.
+- **Generated content is fixed at its source.** Laravel Boost rewrites everything inside `<laravel-boost-guidelines>`
+  on `php artisan boost:update`, and other tools mark their output as generated (RS104). An edit there is lost on the
+  next run, so propose the change where it survives: a guideline in `.ai/guidelines/` (one at a built-in
+  guideline's path overrides it), the tool's config, or a note outside the block. A generated rule that's wrong for
+  this repo, such as a script that doesn't exist, is still worth reporting.
+
+## New projects
+
+With no CLAUDE.md yet, or only what `/init` wrote (RS105), the job is writing a lean file, not trimming one:
+
+1. Find what Claude can't learn from the repo: surprising decisions, commands with prerequisites, conventions that
+   differ from the framework's defaults, and anything that must never happen. Ask the user; a new repo's code and
+   history rarely say.
+2. Write only those, a handful of lines, each with its reason. Leave out the stack, the layout and the scripts.
+3. Turn the must-never-happen items into enforcement (`references/enforcement.md`).
+4. Offer `scan.py --strict` in CI, so the file stays lean as the project grows.

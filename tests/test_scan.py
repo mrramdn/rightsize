@@ -370,6 +370,92 @@ class Cli(TempRepo):
         self.assertEqual(json.loads(result.stdout)["tool"], "rightsize")
 
 
+class RealWorldRegressions(TempRepo):
+    """Cases found by running the scanner on public repositories' CLAUDE.md files."""
+
+    def test_copied_file_is_one_finding(self) -> None:
+        body = "".join("- Guideline number %d keeps the code base consistent.\n" % i for i in range(40))
+        write(self.root, "CLAUDE.md", "# Guidelines\n\n" + body)
+        write(self.root, "AGENTS.md", "# Guidelines\n\n" + body)
+        dups = find(scan.scan(self.root), "RS401")
+        self.assertEqual(len(dups), 1)
+        self.assertEqual(dups[0].path, "CLAUDE.md")
+        self.assertIn("40 instructions appear in both AGENTS.md and CLAUDE.md", dups[0].message)
+        self.assertEqual(dups[0].related, ["AGENTS.md:3-42"])
+
+    def test_principles_list_is_not_a_playbook(self) -> None:
+        items = "".join("%d. **Principle %d**: prefer the smaller change.\n" % (i, i) for i in range(1, 9))
+        write(self.root, "CLAUDE.md", "# Principles\n\n" + items + "\n## Deploying\n\n" + items)
+        found = sorted((f.line, f.severity) for f in find(scan.scan(self.root), "RS602"))
+        self.assertEqual(found, [(3, "info"), (14, "warn")])
+
+    def test_negated_mention_is_not_stale(self) -> None:
+        write(self.root, "CLAUDE.md", "- Config is CSS-first; no separate `tailwind.config.js` file is needed.\n"
+                                      "- See `docs/missing-guide.md` when the build fails.\n")
+        messages = " ".join(f.message for f in find(scan.scan(self.root), "RS701"))
+        self.assertNotIn("tailwind.config.js", messages)
+        self.assertIn("docs/missing-guide.md", messages)
+
+    def test_keywords_mentioned_not_shouted(self) -> None:
+        write(self.root, "CLAUDE.md", "- Findings that miss a MUST/SHOULD requirement from the spec are serious.\n"
+                                      "- Quote the spec's 'MUST' wording when you cite it.\n")
+        self.assertEqual(ids(scan.scan(self.root)), [])
+
+    def test_forbidden_is_an_absolute_rule(self) -> None:
+        write(self.root, "CLAUDE.md", "- FORBIDDEN: `pip install` in this repo.\n")
+        self.assertEqual(ids(scan.scan(self.root)), ["RS201"])
+
+    def test_boost_block_is_generated(self) -> None:
+        write(self.root, "composer.json", '{"scripts": {"test": "phpunit"}}')
+        write(self.root, "CLAUDE.md", """
+            # Project notes
+
+            - Invoices are integer cents.
+
+            <laravel-boost-guidelines>
+            === foundation rules ===
+
+            - Run `composer run dev` to start everything.
+
+            <code-snippet name="Example" lang="php">
+            // ALWAYS return early
+            </code-snippet>
+            </laravel-boost-guidelines>
+            """)
+        report = scan.scan(self.root)
+        generated = find(report, "RS104")
+        self.assertEqual([(f.line, f.severity) for f in generated], [(5, "info")])
+        stale = find(report, "RS702")
+        self.assertEqual(len(stale), 1)
+        self.assertIn("Generated content (RS104)", stale[0].message)
+        self.assertFalse(find(report, "RS201"))  # inside <code-snippet>, so code, not an instruction
+
+    def test_generated_marker_and_init_signature(self) -> None:
+        write(self.root, "CLAUDE.md", "# CLAUDE.md\n\nThis file provides guidance to Claude Code (claude.ai/code) "
+                                      "when working with code in this repository.\n")
+        write(self.root, "docs/rules.md", "<!-- x -->\nThis file is auto-generated from docs/src. Rebuild it.\n")
+        write(self.root, ".claude/rules/vendor.md", "Do not edit files in vendor/ by hand; update the package.\n")
+        report = scan.scan(self.root)
+        self.assertEqual([(f.path, f.id) for f in report.findings], [("CLAUDE.md", "RS105")])
+        write(self.root, "CLAUDE.md", "# Notes\n\n@docs/rules.md\n")
+        self.assertEqual([(f.path, f.id) for f in scan.scan(self.root).findings], [("docs/rules.md", "RS104")])
+
+    def test_plugin_files_describe_other_projects(self) -> None:
+        write(self.root, ".claude-plugin/plugin.json", '{"name": "demo"}')
+        write(self.root, "skills/demo/SKILL.md", """
+            ---
+            name: demo
+            description: Demo skill used to test which references the scanner checks in plugins.
+            ---
+            Edit `.ai/guidelines/` or `app/Models/User.php` in the user's project, run `npm run lint`,
+            and read `references/guide.md` and `references/missing.md` from this skill.
+            """)
+        write(self.root, "skills/demo/references/guide.md", "Guide.\n")
+        report = scan.scan(self.root)
+        self.assertEqual([f.message.split(".")[0] for f in report.findings],
+                         ["Referenced path not found: references/missing"])
+
+
 class Dogfood(unittest.TestCase):
     def test_this_repo_is_clean(self) -> None:
         report = scan.scan(ROOT)
