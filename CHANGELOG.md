@@ -5,6 +5,52 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-11-07
+
+Fixes from a field test of 0.1.1 on a Claude Code plugin, a desktop app, a new Vite project and a personal
+`~/.claude`.
+
+### Changed
+
+- Token estimates are characters / 2.7 instead of / 4. Calibrated on 54 plugin skills against `claude plugin details`,
+  which the old ratio ran 26-36% under. A skill's every-session cost now includes `when_to_use`.
+- `--save` and `--compare` take an optional file. Without one, the snapshot goes to the temp folder under a name tied
+  to the scanned folder, or into its `.git` folder when the temp folder isn't writable, as in `claude plugin eval`
+  runs. The skill uses this instead of a fixed `$TMPDIR/rightsize-before.json`, which two runs at once overwrote.
+- The skill finds its scanner through `${CLAUDE_SKILL_DIR}`. Its description is 40% shorter and no longer names a
+  model generation.
+
+### Added
+
+- The scanner follows the `instructionFiles` option of Claude Code's cc-plugin-agents-md plugin, from
+  `~/.claude/settings.json`, managed settings or `--instruction-files`. With `claude-md-and-agents-md`, AGENTS.md
+  loads alongside CLAUDE.md and no longer gets RS103; with `claude-md` it never loads. A note says when the setting
+  isn't the default.
+- `--include-user` counts skills synced from claude.ai and the skills, agents and commands of enabled plugins, and
+  honors `CLAUDE_CONFIG_DIR`. Synced and plugin files are counted, not linted.
+- Skill guidance: a path for established repos without agent files; a report shape for new files; no padding or
+  invented rules in a new CLAUDE.md; checking what tests and CI assert about context files, and when a tool prints
+  what a line repeats, before cutting it; `git apply --check` on proposed diffs; testing a hook on both sides before
+  offering it; a CI recipe for the scanner.
+- Deterministic eval graders (regex on files and the final message, `tool_used`), so no case depends only on an LLM
+  judge that sees part of the trace.
+- CI runs `claude plugin validate --strict`.
+
+### Fixed
+
+- RS701 skipped missing paths in prohibitions ("Never edit `src/legacy/payments.ts`"). Only mentions of something
+  absent ("no separate `x`", "don't create a `x`") are skipped now.
+- RS104 marked a hand-written CLAUDE.md as generated when an early line said another file was "auto-generated", and
+  tagged its findings "change it at its source". Only a file that marks itself counts now.
+- `--compare` accepted a snapshot of another folder, or one taken with other options, and reported meaningless numbers
+  (-100%). It now refuses, with exit status 2.
+- `--save` to a read-only path ended in a traceback. It now prints the report, says why the snapshot wasn't saved and
+  exits 2.
+- RS402 and RS501 paired lines from two unrelated skills or subagents. Each loads for its own task, so only lines that
+  can share a context are compared.
+- The eval case that applies changes can pass when the sandbox refuses writes under `.claude/`, if the run says so and
+  shows the file's content.
+
 ## [0.1.1] - 2026-11-05
 
 Tuned against real CLAUDE.md files from public repositories: a Laravel Boost app, a Python SDK and a TypeScript SDK.

@@ -24,6 +24,28 @@ sys.path.insert(0, str(ROOT / "skills" / "rightsize" / "scripts"))
 import scan  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures"
+_CONFIG = tempfile.TemporaryDirectory()
+_SAVED_ENV = {}
+
+
+def setUpModule() -> None:
+    """Keep the machine's own Claude Code settings out of the results: an empty user folder and no
+    managed settings, so every test sees the defaults."""
+    for name in ("CLAUDE_CONFIG_DIR", "TMPDIR", "TEMP", "TMP"):
+        _SAVED_ENV[name] = scan.os.environ.get(name)
+    scan.os.environ.pop("TEMP", None)
+    scan.os.environ.pop("TMP", None)
+    scan.os.environ["CLAUDE_CONFIG_DIR"] = _CONFIG.name
+    scan.managed_settings_paths = lambda: []
+
+
+def tearDownModule() -> None:
+    for name, value in _SAVED_ENV.items():
+        if value is None:
+            scan.os.environ.pop(name, None)
+        else:
+            scan.os.environ[name] = value
+    _CONFIG.cleanup()
 RENAMES = {
     "_claude": ".claude",
     "_CLAUDE.md": "CLAUDE.md",
@@ -330,25 +352,97 @@ class Frontmatter(unittest.TestCase):
         self.assertEqual(text.splitlines()[body], "Body")
 
 
+def run_main(root: Path, *args: str) -> tuple:
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = scan.main([str(root), *args])
+    return code, out.getvalue(), err.getvalue()
+
+
 class Cli(TempRepo):
+    def setUp(self) -> None:
+        super().setUp()
+        self.tmp = self.root.parent / "tmp"
+        self.tmp.mkdir()
+        scan.os.environ["TMPDIR"] = str(self.tmp)  # restored by tearDownModule
+        self._fallbacks = scan.TEMP_FALLBACKS
+        scan.TEMP_FALLBACKS = ()
+
+    def tearDown(self) -> None:
+        scan.TEMP_FALLBACKS = self._fallbacks
+        super().tearDown()
+
     def run_main(self, *args: str) -> tuple:
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            code = scan.main([str(self.root), *args])
-        return code, out.getvalue()
+        return run_main(self.root, *args)
 
     def test_snapshot_compare(self) -> None:
         write(self.root, "CLAUDE.md", "# App\n\n" + "".join("- Rule number %d is here.\n" % i for i in range(60)))
         snapshot = self.root.parent / "before.json"
         self.run_main("--save", str(snapshot))
         write(self.root, "CLAUDE.md", "# App\n\n- Money is integer cents.\n")
-        code, out = self.run_main("--json", "--compare", str(snapshot))
+        code, out, _ = self.run_main("--json", "--compare", str(snapshot))
         data = json.loads(out)
         self.assertEqual(code, 0)
         self.assertLess(data["compare"]["after"]["always_tokens"], data["compare"]["before"]["always_tokens"])
         self.assertEqual(data["compare"]["files"][0]["status"], "changed")
-        code, out = self.run_main("--compare", str(snapshot))
-        self.assertIn("Before → after", out)
+        code, out, _ = self.run_main("--compare", str(snapshot))
+        self.assertIn("Before → after  (snapshot taken ", out)
+
+    def test_default_snapshot_belongs_to_its_folder(self) -> None:
+        write(self.root, "CLAUDE.md", "# App\n\n" + "".join("- Rule number %d is here.\n" % i for i in range(30)))
+        code, _, err = self.run_main("--save")
+        self.assertEqual(code, 0)
+        self.assertIn("snapshot saved to " + str(self.tmp / "rightsize"), err)
+        other = self.root.parent / "other"
+        write(other, "CLAUDE.md", "# Other\n")
+        code, out, err = run_main(other, "--compare")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("no snapshot of %s yet" % other, err)
+        write(self.root, "CLAUDE.md", "# App\n\n- Money is integer cents.\n")
+        code, out, _ = self.run_main("--json", "--compare")
+        self.assertEqual(code, 0)
+        compared = json.loads(out)["compare"]
+        self.assertLess(compared["after"]["always_tokens"], compared["before"]["always_tokens"])
+
+    def test_snapshot_of_another_folder_is_refused(self) -> None:
+        write(self.root, "CLAUDE.md", "# App\n")
+        snapshot = self.root.parent / "before.json"
+        self.run_main("--save", str(snapshot))
+        other = self.root.parent / "other"
+        write(other, "CLAUDE.md", "# Other\n")
+        code, out, err = run_main(other, "--compare", str(snapshot))
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("it was taken of %s, not %s" % (self.root, other), err)
+        code, _, err = self.run_main("--include-user", "--compare", str(snapshot))
+        self.assertEqual(code, 2)
+        self.assertIn("include_user", err)
+
+    def test_unwritable_snapshot_is_an_error_not_a_traceback(self) -> None:
+        write(self.root, "CLAUDE.md", "# App\n\nMoney is integer cents.\n")
+        code, out, err = self.run_main("--save", str(self.root.parent / "missing" / "before.json"))
+        self.assertEqual(code, 2)
+        self.assertIn("Loaded every session", out)  # the scan itself still prints
+        self.assertIn("couldn't save the snapshot", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_snapshot_falls_back_to_the_git_folder(self) -> None:
+        write(self.root, "CLAUDE.md", "# App\n")
+        blocked = self.root.parent / "not-a-folder"
+        blocked.write_text("x", encoding="utf-8")
+        scan.os.environ["TMPDIR"] = str(blocked)  # mkdir under a file fails, like a read-only temp folder
+        code, _, err = self.run_main("--save")
+        self.assertEqual(code, 0, err)
+        self.assertIn("snapshot saved to " + str(self.root / ".git" / "rightsize"), err)
+        self.assertEqual(self.run_main("--compare")[0], 0)
+        shutil.rmtree(self.root / ".git")
+        code, _, err = self.run_main("--save")
+        self.assertEqual(code, 2)
+        self.assertIn("found no writable folder", err)
+
+    def test_folder_given_to_save_is_a_usage_error(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            scan.main(["--save", str(self.root)])
+        self.assertEqual(raised.exception.code, 2)
 
     def test_strict_exit_codes(self) -> None:
         write(self.root, "CLAUDE.md", "# App\n\nMoney is integer cents.\n")
@@ -454,6 +548,192 @@ class RealWorldRegressions(TempRepo):
         report = scan.scan(self.root)
         self.assertEqual([f.message.split(".")[0] for f in report.findings],
                          ["Referenced path not found: references/missing"])
+
+
+class FieldTestRegressions(TempRepo):
+    """Cases found by field-testing 0.1.1 on real repositories and a personal ~/.claude."""
+
+    def test_prohibition_about_a_missing_file_is_stale(self) -> None:
+        write(self.root, "src/app.ts", "export {}\n")
+        write(self.root, "package.json", '{"scripts": {"test": "vitest"}}')
+        write(self.root, "CLAUDE.md", """
+            - Never edit `src/legacy/payments.ts`, because the old invoices still read it.
+            - Do not touch files in `src/generated/`, since codegen rewrites them.
+            - Don't create a `jest.config.js`, because Vitest is configured in package.json.
+            - We no longer run `scripts/old-deploy.sh`; CI deploys now.
+            """)
+        messages = " ".join(f.message for f in find(scan.scan(self.root), "RS701"))
+        self.assertIn("src/legacy/payments.ts", messages)
+        self.assertIn("src/generated/", messages)
+        self.assertNotIn("jest.config.js", messages)
+        self.assertNotIn("scripts/old-deploy.sh", messages)
+
+    def test_mentioning_generated_files_is_not_generated(self) -> None:
+        write(self.root, "src/api/types.ts", "export {}\n")
+        write(self.root, "CLAUDE.md", """
+            # Notes
+
+            Types in `src/api/types.ts` are auto-generated from the OpenAPI spec; edit the spec instead.
+            - `src/api/types.ts` is generated by `npx openapi-typescript`, so don't edit it.
+            Auto-generated clients live next to the spec.
+            - DO NOT EDIT `src/api/types.ts` by hand, because codegen overwrites it.
+            """)
+        report = scan.scan(self.root)
+        self.assertFalse(find(report, "RS104"))
+        self.assertFalse([f for f in report.findings if "Generated content" in f.message])
+
+    def test_generated_markers(self) -> None:
+        for marker in ("<!-- AUTO-GENERATED by docs-gen. DO NOT EDIT. -->",
+                       "# Generated by sync-rules",
+                       "<!-- Code generated by protoc-gen-doc. DO NOT EDIT. -->",
+                       "This file was automatically generated.",
+                       "<!-- Do not edit this file: it is rebuilt from docs/src. -->"):
+            write(self.root, "CLAUDE.md", marker + "\n\nMoney is integer cents.\n")
+            self.assertIn("RS104", ids(scan.scan(self.root)), marker)
+
+    def test_skills_for_different_tasks_do_not_conflict(self) -> None:
+        write(self.root, ".claude/skills/research/SKILL.md", """
+            ---
+            name: research
+            description: Research a topic across many sources and write a report with citations.
+            ---
+            - Always cite every source you use in the final report.
+            """)
+        write(self.root, ".claude/skills/trim/SKILL.md", """
+            ---
+            name: trim
+            description: Trim instruction files and report what changed, with token counts.
+            ---
+            - Never cite every source you use in the final report.
+            """)
+        self.assertFalse(find(scan.scan(self.root), "RS501"))
+        write(self.root, "CLAUDE.md", "# Notes\n\n- Always cite every source you use in the final report.\n")
+        conflicts = find(scan.scan(self.root), "RS501")
+        self.assertEqual([(f.path, f.related) for f in conflicts],
+                         [("CLAUDE.md", [".claude/skills/trim/SKILL.md:5"])])
+
+    def test_token_estimate(self) -> None:
+        self.assertEqual(scan.tokens(27), 10)
+        self.assertEqual(scan.tokens(28), 11)
+
+
+class InstructionFiles(TempRepo):
+    """The cc-plugin-agents-md plugin's instructionFiles setting decides which AGENTS.md files load."""
+
+    def settings(self, data: dict) -> None:
+        (Path(_CONFIG.name) / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+
+    def option(self, value: str, plugin_id: str = "cc-plugin-agents-md@builtin") -> None:
+        self.settings({"pluginConfigs": {plugin_id: {"options": {"instructionFiles": value}}}})
+
+    def tearDown(self) -> None:
+        settings = Path(_CONFIG.name) / "settings.json"
+        if settings.exists():
+            settings.unlink()
+        super().tearDown()
+
+    def test_both_files_load(self) -> None:
+        write(self.root, "AGENTS.md", "# Shared\n\nUse pnpm, because the lockfile is pnpm-lock.yaml.\n")
+        write(self.root, "CLAUDE.md", "# Claude\n\nMoney is integer cents.\n")
+        self.option("claude-md-and-agents-md")
+        report = scan.scan(self.root)
+        self.assertEqual({f.rel: f.load for f in report.files}, {"AGENTS.md": "always", "CLAUDE.md": "always"})
+        self.assertEqual(ids(report), [])
+        self.assertIn("instructionFiles: claude-md-and-agents-md", " ".join(report.notes))
+        self.assertEqual(report.options["instruction_files"], "claude-md-and-agents-md")
+
+    def test_claude_md_only(self) -> None:
+        write(self.root, "AGENTS.md", "# Shared\n\nUse pnpm, because the lockfile is pnpm-lock.yaml.\n")
+        self.option("agents-md-typo")  # not a mode: ignored
+        self.assertEqual(scan.scan(self.root).files[0].load, "always")
+        self.option("claude-md", "agents-md@builtin")  # the plugin's name before Claude Code 2.1.285
+        report = scan.scan(self.root)
+        self.assertEqual(report.files[0].load, "other-agents")
+        self.assertIn("instructionFiles: claude-md", find(report, "RS103")[0].message)
+        self.assertIn("No CLAUDE.md that Claude Code reads here", " ".join(report.notes))
+
+    def test_plugin_switched_off(self) -> None:
+        write(self.root, "AGENTS.md", "# Shared\n")
+        self.settings({"enabledPlugins": {"cc-plugin-agents-md@builtin": False}})
+        self.assertEqual(scan.scan(self.root).files[0].load, "other-agents")
+
+    def test_flag_overrides_settings(self) -> None:
+        write(self.root, "AGENTS.md", "# Shared\n")
+        write(self.root, "CLAUDE.md", "# Claude\n")
+        self.option("claude-md")
+        report = scan.scan(self.root, instruction_files="claude-md-and-agents-md")
+        self.assertEqual(next(f for f in report.files if f.rel == "AGENTS.md").load, "always")
+
+    def test_managed_only_keeps_the_default_numbers(self) -> None:
+        write(self.root, "AGENTS.md", "# Shared\n")
+        write(self.root, "CLAUDE.md", "# Claude\n")
+        self.option("managed-only")
+        report = scan.scan(self.root)
+        self.assertEqual(next(f for f in report.files if f.rel == "AGENTS.md").load, "other-agents")
+        self.assertIn("managed-only", " ".join(report.notes))
+
+
+class UserScope(TempRepo):
+    """--include-user counts personal, synced and plugin skills."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        config = Path(_CONFIG.name)
+        self.created = [config / name for name in ("CLAUDE.md", "skills", "plugins", "settings.json", ".claude.json")]
+        write(config, "CLAUDE.md", "Personal notes: answer in English.\n")
+        write(config, "skills/mine/SKILL.md",
+              "---\nname: mine\ndescription: My own helper for writing release notes from merged PRs.\n---\nBody.\n")
+        write(config, "skills/synced/abc_def/docx/SKILL.md",
+              "---\nname: docx\ndescription: Create and edit Word documents.\n---\nALWAYS USE THIS FOR WORD FILES.\n")
+        write(config, "skills/synced/xyz_uvw/xlsx/SKILL.md",  # another account's skills
+              "---\nname: xlsx\ndescription: Create and edit spreadsheets.\n---\nBody.\n")
+        write(config, ".claude.json", json.dumps({"oauthAccount": {"organizationUuid": "abc", "accountUuid": "def"}}))
+        plugin = self.root.parent / "cache" / "demo" / "1.0.0"
+        write(plugin, ".claude-plugin/plugin.json", '{"name": "demo"}')
+        write(plugin, "skills/charts/SKILL.md",
+              "---\nname: charts\ndescription: Draw charts.\nwhen_to_use: When the user asks for a chart.\n---\n"
+              "NEVER use pie charts.\n")
+        write(plugin, "agents/helper.md", "---\nname: helper\ndescription: Helps with charts.\n---\nHi.\n")
+        off = self.root.parent / "cache" / "off" / "1.0.0"
+        write(off, "skills/hidden/SKILL.md", "---\nname: hidden\ndescription: Should not load.\n---\nBody.\n")
+        write(config, "plugins/installed_plugins.json", json.dumps({"version": 2, "plugins": {
+            "demo@market": [{"scope": "user", "installPath": str(plugin)}],
+            "off@market": [{"scope": "user", "installPath": str(off)}],
+        }}))
+        write(config, "settings.json", json.dumps({"enabledPlugins": {"demo@market": True, "off@market": False}}))
+
+    def tearDown(self) -> None:
+        for path in self.created:
+            if path.is_dir():
+                shutil.rmtree(path)
+            elif path.exists():
+                path.unlink()
+        super().tearDown()
+
+    def test_synced_and_plugin_skills_are_counted_not_linted(self) -> None:
+        write(self.root, "CLAUDE.md", "# App\n\nMoney is integer cents.\n")
+        report = scan.scan(self.root, include_user=True)
+        by_name = {f.path.parent.name if f.kind == "skill" else f.path.stem: f for f in report.files}
+        self.assertEqual(set(by_name), {"CLAUDE", "mine", "docx", "charts", "helper"})
+        self.assertEqual(by_name["docx"].note, "synced from claude.ai")
+        self.assertEqual(by_name["charts"].note, "plugin demo")
+        charts = by_name["charts"]
+        self.assertEqual(charts.always_chars, len("charts") + len("Draw charts.") + len("When the user asks for a chart.") + 4)
+        self.assertEqual(ids(report), [])  # the synced and plugin bodies shout, but they aren't ours to fix
+        self.assertFalse(any(f.rel.endswith("hidden/SKILL.md") for f in report.files))
+
+    def test_without_a_known_account_every_synced_folder_counts(self) -> None:
+        (Path(_CONFIG.name) / ".claude.json").unlink()
+        names = {f.path.parent.name for f in scan.scan(self.root, include_user=True).files if f.kind == "skill"}
+        self.assertEqual(names, {"mine", "docx", "xlsx", "charts"})
+
+    def test_scanning_the_user_folder_itself(self) -> None:
+        config = Path(_CONFIG.name).resolve()
+        report = scan.scan(config)
+        personal = next(f for f in report.files if f.path == config / "CLAUDE.md")
+        self.assertEqual((personal.scope, personal.load), ("user", "always"))
+        self.assertTrue(report.options["include_user"])
+        self.assertFalse([n for n in report.notes if "No CLAUDE.md" in n])
 
 
 class Dogfood(unittest.TestCase):

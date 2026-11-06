@@ -1,7 +1,11 @@
 ---
-type: llm
-focus: trace
+type: regex
+target:
+  source: file
+  path: CLAUDE.md
+pattern: '├──|spatie/laravel-permission|laravel/sanctum'
+match: not_contains
 weight: 1
 ---
 
-After the run CLAUDE.md no longer contains the directory tree, the tech stack list or the dated notes.
+CLAUDE.md no longer carries the directory tree or the tech stack list, which Claude can read from the repo.
