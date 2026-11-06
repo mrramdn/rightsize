@@ -103,7 +103,11 @@ describes six changes. In practice:
 - **Team files.** Checked-in files are shared. Prefer small, reviewable changes, and explain each deletion in the
   report so teammates can object.
 - **Generated content.** A CLAUDE.md written by `/init` usually lists commands and architecture Claude can rediscover.
-  Keep the parts a human added after generation; those are usually the gotchas.
+  Keep the parts a human added after generation; those are usually the gotchas. Laravel Boost owns everything inside
+  `<laravel-boost-guidelines>` and rewrites it on `php artisan boost:update` (it leaves text outside the block alone).
+  Put project rules in `.ai/guidelines/`, override a built-in guideline with a file at the same path (recent Boost
+  versions can also drop one through `guidelines.exclude` in `config/boost.php`), and report generated rules that
+  don't fit the repo instead of editing them in place.
 - **Nested overrides.** A nested CLAUDE.md that changes a root rule for its subtree is intentional, not a conflict.
 - **Cross-tool files.** AGENTS.md is read by other agents (Codex, Cursor and others). Keep it tool-neutral and import it
   from CLAUDE.md with `@AGENTS.md` instead of keeping two copies in sync by hand.

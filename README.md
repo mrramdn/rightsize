@@ -16,8 +16,9 @@ leaves context where every line earns its place.
 ## What it does
 
 - **Scans** every context file with a deterministic, standard-library Python scanner: what loads every session versus
-  on demand, estimated tokens, and 22 checks for bare rules, shouting, scaffolding, duplicates, conflicts, inline
-  playbooks and code, stale paths and scripts, and content Claude can read from your manifests. It only reads files.
+  on demand, estimated tokens, and 24 checks for bare rules, shouting, scaffolding, duplicates, conflicts, inline
+  playbooks and code, stale paths and scripts, content Claude can read from your manifests, and content a tool
+  generated (Laravel Boost, `/init`). It only reads files.
 - **Classifies** every instruction, flagged or not, as keep, rewrite, move, enforce or delete, using one test: what
   concrete mistake would Claude make in this repo without this line?
 - **Proposes** a diff grouped by verdict. Nothing changes until you say which groups to apply.
@@ -42,6 +43,10 @@ The deploy runbook became a manual-only skill and the review checklist merged in
 one-word description now says when to use it). The persona, "think step by step", the tech stack, the directory tree
 and the dated notes were deleted. Bare rules got their reasons. `migrate:fresh` is now blocked by a hook, `.env` by a
 deny rule, and `config/` edits ask first. The money-in-cents gotcha stayed.
+
+Before 0.1.1 the scanner was also run against real CLAUDE.md files from public repositories (a Laravel Boost app, a
+Python SDK, a TypeScript SDK) to cut false alarms, and the skill learned to leave generated Laravel Boost guidelines
+to `.ai/guidelines/` instead of editing them in place.
 
 ## Install
 
@@ -94,6 +99,12 @@ Every session ~922 → ~305 tokens (est.) · warnings 22 → 0
 Reply with the groups to apply ("apply rewrite, move and delete; skip enforce for now"). Claude applies them and shows
 the before/after.
 
+### New projects
+
+Run `/init` first, then `/rightsize`: it trims what `/init` wrote down to what Claude can't learn from the repo. With
+no CLAUDE.md at all, ask for a lean one ("set up a lean CLAUDE.md for this project"); rightsize asks you for the few
+things only you know and writes just those. Add `scan.py --strict` to CI to keep it that way.
+
 ### The scanner on its own
 
 ```sh
@@ -118,7 +129,7 @@ In GitHub Actions:
 
 | Family | IDs | Flags |
 |---|---|---|
-| Size | RS101–RS103 | memory files over 200 lines, SKILL.md over 500, an AGENTS.md Claude Code isn't reading |
+| Size, origin | RS101–RS105 | memory files over 200 lines, SKILL.md over 500, an AGENTS.md Claude Code isn't reading, Laravel Boost and `/init` output |
 | Wording | RS201, RS202, RS301 | ALWAYS/NEVER/MUST with no reason (also WAJIB, JANGAN, HARUS), shouting, persona and step-by-step scaffolding |
 | Duplicates, conflicts | RS401, RS402, RS501 | the same instruction in several layers, near-duplicates, one line negating another |
 | Bloat | RS601–RS605 | inline code, long procedures and checklists, long sections, dated logs |

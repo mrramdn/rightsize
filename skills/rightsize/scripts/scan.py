@@ -32,7 +32,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 # Thresholds. Each one is a heuristic, not a rule: the skill decides what to do.
 MEMORY_MAX_LINES = 200        # always-loaded memory file; override with --max-lines
@@ -50,6 +50,7 @@ MAX_IMPORT_DEPTH = 4          # Claude Code follows @imports four hops deep
 MAX_WALK_FILES = 100_000
 MAX_FILE_BYTES = 2_000_000
 MAX_PAIR_FINDINGS = 40        # cap for near-duplicate and conflict findings, each
+COPIED_MIN_LINES = 5          # this many shared lines between the same files = one "copied" finding
 
 SKIP_DIRS = {
     ".git", "node_modules", "vendor", ".venv", "venv", "__pycache__", ".mypy_cache",
@@ -126,7 +127,7 @@ yang dan di ke dari untuk dengan ini itu jangan selalu harus tidak boleh pakai g
 """.split())
 
 ABSOLUTE = re.compile(
-    r"\b(ALWAYS|NEVER|MUST(?:\s+NOT)?|DO\s+NOT|DON'T|SHALL(?:\s+NOT)?|REQUIRED|"
+    r"\b(ALWAYS|NEVER|ONLY|MUST(?:\s+NOT)?|DO\s+NOT|DON'T|SHALL(?:\s+NOT)?|REQUIRED|FORBIDDEN|PROHIBITED|"
     r"WAJIB|JANGAN|HARUS|SELALU|DILARANG)\b"
 )
 EMPHASIS = re.compile(r"\b(IMPORTANT|CRITICAL|WARNING|MANDATORY|ATTENTION|PENTING)\b|[⚠\U0001f6a8❗‼\U0001f534⛔]")
@@ -160,6 +161,25 @@ SCAFFOLDING = [
     )
 ]
 LEAD_MARKER = re.compile(r"^(?:important|critical|note|warning|nb|penting)\s*[:\-\u2014]\s*", re.IGNORECASE)
+TASK_WORDS = re.compile(
+    r"\b(deploy\w*|releas\w*|review\w*|checklist\w*|set ?up|install\w*|migrat\w*|publish\w*|onboard\w*|"
+    r"how to|steps?|process|workflow|runbook|debug\w*|troubleshoot\w*|rollback|upgrad\w*|shipping|"
+    r"provision\w*|backup\w*|hotfix\w*|incident\w*)\b",
+    re.IGNORECASE,
+)
+REFERRED_CAPS = re.compile(r"\b[A-Z]{2,}(?:/[A-Z]{2,})+\b|[\"'“‘][A-Z]{2,}[\"'”’]")
+NEGATED_MENTION = re.compile(
+    r"\b(no|not|never|without|instead of|don'?t|doesn'?t|isn'?t|aren'?t|avoid|removed?|deleted?|"
+    r"deprecated|replaced|no longer)\b[^`]{0,30}$",
+    re.IGNORECASE,
+)
+GENERATED_MARKER = re.compile(
+    r"\b(auto-?generated|this file (?:is|was) (?:auto-?)?generated|generated (?:by|from|with) [\w./@-]+|"
+    r"do(?: not|n'?t) edit (?:this file|by hand|manually|directly))\b",
+    re.IGNORECASE,
+)
+INIT_SIGNATURE = "This file provides guidance to Claude Code"
+SKILL_OWN_PATH = re.compile(r"^(?:\./)?(?:references|scripts|assets|templates|examples|resources)/")
 LIST_PREFIX = re.compile(r"^\s*(?:(?:[-*+]|\d{1,3}[.)])\s+(?:\[[ xX]\]\s+)?|>\s+)+")
 NUMBERED_ITEM = re.compile(r"^ {0,3}\d{1,3}[.)]\s+\S")
 CHECKLIST_ITEM = re.compile(r"^\s{0,3}[-*+]\s+\[[ xX]\]\s")
@@ -203,6 +223,7 @@ class ContextFile:
     body_start: int = 0
     note: str = ""
     lint: bool = True
+    generated: Optional[Tuple[int, int]] = None  # line span written by a tool
 
 
 @dataclass
@@ -314,7 +335,7 @@ def body_lines(cf: ContextFile) -> Iterator[Tuple[int, str, str]]:
     comments are "comment": Claude Code strips them from CLAUDE.md before Claude sees it.
     """
     fence = ""
-    in_comment = False
+    in_comment = snippet = False
     lines = cf.text.splitlines()
     for idx in range(cf.body_start, len(lines)):
         line = lines[idx]
@@ -323,6 +344,15 @@ def body_lines(cf: ContextFile) -> Iterator[Tuple[int, str, str]]:
         if not fence and (in_comment or (indent <= 3 and stripped.startswith("<!--"))):
             in_comment = "-->" not in stripped
             yield idx + 1, line, "comment"
+            continue
+        # Laravel Boost writes examples as <code-snippet> blocks rather than fences.
+        if not fence and not snippet and stripped.startswith("<code-snippet") and "</code-snippet>" not in stripped:
+            snippet = True
+            yield idx + 1, line, "fence-open"
+            continue
+        if snippet:
+            snippet = "</code-snippet>" not in stripped
+            yield idx + 1, line, "code" if snippet else "fence-close"
             continue
         marker = re.match(r"^(`{3,}|~{3,})", stripped) if indent <= 3 else None
         if marker and not fence:
@@ -783,6 +813,7 @@ class Checker:
         for cf in self.files:
             self.check_meta(cf)
         for cf in lintable:
+            self.check_origin(cf)
             self.check_size(cf)
             self.check_lines(cf)
             self.check_blocks(cf)
@@ -790,9 +821,48 @@ class Checker:
         self.check_pairs([cf for cf in self.files if cf.lint])
         self.check_derivable([cf for cf in lintable if cf.load == "always"])
         self.check_agents_md()
+        by_rel = {cf.rel: cf for cf in self.files}
+        for finding in self.findings:
+            span = by_rel[finding.path].generated if finding.path in by_rel else None
+            if span and finding.id not in ("RS104", "RS105") and (
+                    finding.line is None or span[0] <= finding.line <= span[1]):
+                finding.message += " Generated content (RS104): change it at its source."
         order = {"warn": 0, "info": 1}
         self.findings.sort(key=lambda f: (order[f.severity], f.path, f.line or 0, f.id))
         return self.findings
+
+    # Origin -----------------------------------------------------------------------
+
+    def check_origin(self, cf: ContextFile) -> None:
+        """Content a tool wrote gets rewritten on its next run, so fixes belong at the source."""
+        if cf.kind not in ("memory", "import", "rule"):
+            return
+        lines = cf.text.splitlines()
+        start = next((i for i, line in enumerate(lines) if "<laravel-boost-guidelines>" in line), None)
+        if start is not None:
+            end = next((i for i in range(start, len(lines)) if "</laravel-boost-guidelines>" in lines[i]),
+                       len(lines) - 1)
+            cf.generated = (start + 1, end + 1)
+            self.add("RS104", "origin", "info", cf, start + 1,
+                     "Lines %d-%d are Laravel Boost's generated block, rewritten by `php artisan "
+                     "boost:update`. Change them through `.ai/guidelines/` (a file at a built-in "
+                     "guideline's path overrides it) and keep project notes outside the block."
+                     % (start + 1, end + 1))
+        else:
+            for i, line in enumerate(lines[:15]):
+                if GENERATED_MARKER.search(line):
+                    cf.generated = (1, len(lines))
+                    self.add("RS104", "origin", "info", cf, i + 1,
+                             "Marked as generated. Change it at its source, or the next run "
+                             "overwrites your edits.", line)
+                    break
+        if cf.kind == "memory":
+            for i, line in enumerate(lines[:12]):
+                if INIT_SIGNATURE in line:
+                    self.add("RS105", "origin", "info", cf, i + 1,
+                             "Started by /init. Its command lists and architecture notes are often "
+                             "derivable; lines people added since are usually the gotchas worth keeping.")
+                    break
 
     # Size and metadata ------------------------------------------------------------
 
@@ -856,6 +926,7 @@ class Checker:
                 _, nxt, nxt_kind = rows[pos + 1]
                 if nxt_kind == "text" and nxt.strip() and not LIST_OR_TABLE.match(nxt) and not HEADING.match(nxt):
                     following = nxt
+            text = REFERRED_CAPS.sub(" ", text)  # "MUST/SHOULD", 'NEVER': keywords mentioned, not shouted
             letters = [c for c in text if c.isalpha()]
             shouting = len(letters) >= 15 and sum(c.isupper() for c in letters) / len(letters) >= 0.7
             absolute = ABSOLUTE.search(text)
@@ -901,26 +972,34 @@ class Checker:
                              "Long code block (%d lines). Point to real code or move it into a "
                              "references/ file." % length)
                 start = None
-        # Long procedures and checklists.
+        # Long procedures and checklists. Under a heading that names a task (deploy, review, release)
+        # they are a playbook for that task; elsewhere they may be principles that apply to all work.
         for pattern, label in ((NUMBERED_ITEM, "numbered steps"), (CHECKLIST_ITEM, "checklist items")):
-            run_start, count = None, 0
+            run_start, count, heading, run_heading = None, 0, "", ""
             for number, line, kind in rows + [(10 ** 9, "<end>", "text")]:
+                head = HEADING.match(line) if kind == "text" else None
                 if kind == "text" and pattern.match(line):
                     if run_start is None:
-                        run_start = number
+                        run_start, run_heading = number, heading
                     count += 1
-                elif kind != "text" or not line.strip() or line[:1] in (" ", "\t"):
                     continue
-                else:
+                if kind == "text" and line.strip() and line[:1] not in (" ", "\t"):
                     if run_start is not None and count >= PROCEDURE_MIN_ITEMS:
-                        if always:
-                            message = ("%d %s loaded every session. If they're for one kind of task, "
-                                       "move them into a skill so they load only when needed." % (count, label))
+                        task = bool(TASK_WORDS.search(run_heading))
+                        if always and task:
+                            message = ("%d %s for one kind of task, loaded every session. Move them into "
+                                       "a skill so they load only when that task comes up." % (count, label))
+                        elif always:
+                            message = ("%d %s loaded every session. Fine if they apply to all work; if "
+                                       "they're for one kind of task, a skill loads them only when needed."
+                                       % (count, label.replace("steps", "items")))
                         else:
                             message = ("%d %s. Fine in a skill if every step matters; cut the ones "
                                        "Claude would do anyway." % (count, label))
-                        self.add("RS602", "bloat", self.level(cf), cf, run_start, message)
+                        self.add("RS602", "bloat", "warn" if always and task else "info", cf, run_start, message)
                     run_start, count = None, 0
+                if head:
+                    heading = head.group(2)
         # Long sections.
         if always:
             heads = [(len(m.group(1)), number, m.group(2))
@@ -975,8 +1054,13 @@ class Checker:
         base = cf.path.parent
         rows = list(body_lines(cf))
         reported: Set[str] = set()
+        # Plugin and personal (~/.claude) files describe other people's projects, so their paths
+        # and commands can't be checked against this repo; only a skill's own files can.
+        portable = cf.scope in ("plugin", "user")
         for number, line, kind in rows:
-            if kind == "code" and not line.lstrip().startswith(("#", "//", "--", ";")):
+            if portable:
+                pass
+            elif kind == "code" and not line.lstrip().startswith(("#", "//", "--", ";")):
                 self.check_commands(cf, number, line)
             elif kind == "text":
                 for span in INLINE_CODE.findall(line):
@@ -992,8 +1076,13 @@ class Checker:
                 candidate = self.path_candidate(token.split("#")[0])
                 if not candidate or candidate in reported:
                     continue
+                if portable and not (cf.kind == "skill" and SKILL_OWN_PATH.match(candidate)):
+                    continue
                 if self.index.exists(candidate, base):
                     continue
+                before = line[: max(line.find(token), 0)].rstrip("`'\"([ ")
+                if NEGATED_MENTION.search(before):
+                    continue  # "no separate tailwind.config.js", "instead of webpack.config.js"
                 bare = candidate.rstrip("/")
                 has_slash = "/" in bare
                 name = bare.split("/")[-1]
@@ -1082,6 +1171,9 @@ class Checker:
         for i, entry in enumerate(entries):
             groups[entry[3]].append(i)
         exact_pairs: Set[Tuple[int, int]] = set()
+        # Duplicates that span the same set of files are reported together: two files sharing
+        # dozens of lines are one copied file, not dozens of findings.
+        by_files: Dict[Tuple[str, ...], List[List[int]]] = defaultdict(list)
         for members in groups.values():
             if len(members) < 2:
                 continue
@@ -1089,14 +1181,39 @@ class Checker:
                 for b in members:
                     if a < b:
                         exact_pairs.add((a, b))
-            first = entries[members[0]]
+            by_files[tuple(sorted({entries[m][0].rel for m in members}))].append(members)
+
+        def severity_of(members: List[int]) -> str:
             loaded = [entries[m] for m in members if claude_loads(entries[m])]
-            severity = "warn" if len(loaded) >= 2 and any(every_session(e[0]) for e in loaded) else "info"
-            message = "Same instruction in %d places. Keep one, in the layer where it applies." % len(members)
-            if any(entries[m][0].load == "other-agents" for m in members):
-                message += " One copy is for other agents; consider importing it with @AGENTS.md."
-            self.add("RS401", "duplicate", severity, first[0], first[1], message, first[2],
-                     [where(entries[m]) for m in members[1:]])
+            return "warn" if len(loaded) >= 2 and any(every_session(e[0]) for e in loaded) else "info"
+
+        for paths, member_lists in sorted(by_files.items()):
+            other_agents = any(entries[m][0].load == "other-agents" for ms in member_lists for m in ms)
+            if len(paths) >= 2 and len(member_lists) >= COPIED_MIN_LINES:
+                member_lists.sort(key=lambda ms: min(ms))
+                # Anchor on the copy Claude reads, so the finding sits where the fix starts.
+                first = min((entries[m] for m in member_lists[0]),
+                            key=lambda e: (e[0].load == "other-agents", e[0].rel, e[1]))
+                message = "%d instructions appear in both %s. Keep one copy and import it where else it's needed." % (
+                    len(member_lists), " and ".join(paths))
+                if other_agents:
+                    message += " Claude Code reads only one of these here; import the other with @AGENTS.md."
+                spans = []
+                for path in paths:
+                    if path == first[0].rel:
+                        continue
+                    lines = sorted(entries[m][1] for ms in member_lists for m in ms if entries[m][0].rel == path)
+                    spans.append("%s:%d-%d" % (path, lines[0], lines[-1]))
+                self.add("RS401", "duplicate", severity_of(member_lists[0]), first[0], first[1], message,
+                         first[2], spans)
+                continue
+            for members in member_lists:
+                first = entries[members[0]]
+                message = "Same instruction in %d places. Keep one, in the layer where it applies." % len(members)
+                if other_agents:
+                    message += " One copy is for other agents; consider importing it with @AGENTS.md."
+                self.add("RS401", "duplicate", severity_of(members), first[0], first[1], message, first[2],
+                         [where(entries[m]) for m in members[1:]])
 
         postings: Dict[str, List[int]] = defaultdict(list)
         for i, entry in enumerate(entries):
@@ -1261,6 +1378,8 @@ def render_table(data: dict) -> str:
                    % (s["other_agents_files"], "" if s["other_agents_files"] == 1 else "s"))
     if data.get("partial"):
         out.append("Note: the repo is large; the walk stopped early, so results are partial.")
+    for note in data.get("notes", []):
+        out.append("Note: " + note)
     out += ["", "Files", "  %8s %10s %6s  %s" % ("always", "on-demand", "lines", "path")]
     for f in sorted(data["files"], key=lambda f: (-f["always_tokens"], -f["on_demand_tokens"], f["path"])):
         extra = []
@@ -1311,8 +1430,9 @@ def scan(root: Path, include_user: bool = False, max_lines: int = MEMORY_MAX_LIN
     files = discover(root, index, include_user)
     findings = Checker(root, index, files, max_lines).run()
     notes = []
-    if not files:
-        notes.append("No context files found. Claude Code would start with only its own system prompt.")
+    if not any(f.kind == "memory" and f.load != "other-agents" for f in files):
+        notes.append("No CLAUDE.md that Claude Code reads here. For a new project, write a short one with only "
+                     "what Claude can't learn from the repo (see the skill's New projects section).")
     return Report(str(root), files, findings, notes, index.partial)
 
 
