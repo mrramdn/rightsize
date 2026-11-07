@@ -14,9 +14,10 @@ Fixes from a field test of 0.1.1 on a Claude Code plugin, a desktop app, a new V
 
 - Token estimates are characters / 2.7 instead of / 4. Calibrated on 54 plugin skills against `claude plugin details`,
   which the old ratio ran 26-36% under. A skill's every-session cost now includes `when_to_use`.
-- `--save` and `--compare` take an optional file. Without one, the snapshot goes to the temp folder under a name tied
-  to the scanned folder, or into its `.git` folder when the temp folder isn't writable, as in `claude plugin eval`
-  runs. The skill uses this instead of a fixed `$TMPDIR/rightsize-before.json`, which two runs at once overwrote.
+- `--save` and `--compare` take an optional file. Without one, the snapshot goes into the scanned repo's `.git`
+  folder (the temp folder outside git), under a name tied to the folder, so it survives sandboxes that make
+  `$TMPDIR` read-only or give each command its own `/tmp`, as `claude plugin eval` runs do. The skill uses this
+  instead of a fixed `$TMPDIR/rightsize-before.json`, which two runs at once overwrote.
 - The skill finds its scanner through `${CLAUDE_SKILL_DIR}`. Its description is 40% shorter and no longer names a
   model generation.
 
@@ -49,7 +50,7 @@ Fixes from a field test of 0.1.1 on a Claude Code plugin, a desktop app, a new V
 - RS402 and RS501 paired lines from two unrelated skills or subagents. Each loads for its own task, so only lines that
   can share a context are compared.
 - The eval case that applies changes can pass when the sandbox refuses writes under `.claude/`, if the run says so and
-  shows the file's content.
+  shows the file's content. The skill now says to keep such a file in the plan rather than put its content elsewhere.
 
 ## [0.1.1] - 2026-11-05
 

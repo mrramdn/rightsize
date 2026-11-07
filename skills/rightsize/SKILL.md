@@ -73,7 +73,8 @@ whether Claude would get it wrong without it, and where it belongs.
 
    If the scanner says the snapshot couldn't be saved or read, pass a writable file to both (`--save FILE`,
    `--compare FILE`), or give your estimate and label it as one. If a write is refused (some sandboxes protect
-   `.claude/`), say which file and show its full content instead.
+   `.claude/`), keep the plan: say which file couldn't be written and show its full content, rather than putting
+   that content somewhere else.
 
    Write hooks or permission rules only for the enforce items the user approved: settings apply to every session,
    and a too-broad rule blocks work they didn't expect.

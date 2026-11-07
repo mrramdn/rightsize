@@ -392,7 +392,7 @@ class Cli(TempRepo):
         write(self.root, "CLAUDE.md", "# App\n\n" + "".join("- Rule number %d is here.\n" % i for i in range(30)))
         code, _, err = self.run_main("--save")
         self.assertEqual(code, 0)
-        self.assertIn("snapshot saved to " + str(self.tmp / "rightsize"), err)
+        self.assertIn("snapshot saved to " + str(self.root / ".git" / "rightsize"), err)  # outside the tracked files
         other = self.root.parent / "other"
         write(other, "CLAUDE.md", "# Other\n")
         code, out, err = run_main(other, "--compare")
@@ -425,16 +425,16 @@ class Cli(TempRepo):
         self.assertIn("couldn't save the snapshot", err)
         self.assertNotIn("Traceback", err)
 
-    def test_snapshot_falls_back_to_the_git_folder(self) -> None:
+    def test_snapshot_outside_git_uses_the_temp_folder(self) -> None:
+        shutil.rmtree(self.root / ".git")
         write(self.root, "CLAUDE.md", "# App\n")
+        code, _, err = self.run_main("--save")
+        self.assertEqual(code, 0, err)
+        self.assertIn("snapshot saved to " + str(self.tmp / "rightsize"), err)
+        self.assertEqual(self.run_main("--compare")[0], 0)
         blocked = self.root.parent / "not-a-folder"
         blocked.write_text("x", encoding="utf-8")
         scan.os.environ["TMPDIR"] = str(blocked)  # mkdir under a file fails, like a read-only temp folder
-        code, _, err = self.run_main("--save")
-        self.assertEqual(code, 0, err)
-        self.assertIn("snapshot saved to " + str(self.root / ".git" / "rightsize"), err)
-        self.assertEqual(self.run_main("--compare")[0], 0)
-        shutil.rmtree(self.root / ".git")
         code, _, err = self.run_main("--save")
         self.assertEqual(code, 2)
         self.assertIn("found no writable folder", err)

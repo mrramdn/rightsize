@@ -1642,9 +1642,12 @@ def snapshot_name(root: Path, include_user: bool) -> str:
 
 
 def snapshot_dirs(root: Path) -> List[Path]:
-    """Where a snapshot without a file name goes, never among the repo's files: the temp folder, then the
-    repo's .git folder, for sandboxes that only allow writes inside the workspace."""
+    """Where a snapshot without a file name goes, never among the repo's files: the repo's .git folder, then
+    the temp folder. .git comes first because sandboxes may allow writes only inside the workspace, and some
+    give each command a private /tmp that is gone before the next one runs."""
     dirs: List[Path] = []
+    if (root / ".git").is_dir():
+        dirs.append(root / ".git" / "rightsize")
     seen: Set[Path] = set()
     candidates = [os.environ.get(name) for name in ("TMPDIR", "TEMP", "TMP")] + list(TEMP_FALLBACKS)
     for value in candidates:
@@ -1658,8 +1661,6 @@ def snapshot_dirs(root: Path) -> List[Path]:
             continue
         seen.add(resolved)
         dirs.append(resolved / "rightsize")
-    if (root / ".git").is_dir():
-        dirs.append(root / ".git" / "rightsize")
     return dirs
 
 
@@ -1715,8 +1716,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--json", action="store_const", const="json", dest="format",
                         help="shorthand for --format json")
     parser.add_argument("--save", metavar="FILE", nargs="?", const="",
-                        help="save this scan as a snapshot to compare against later. Without FILE it goes to the "
-                             "temp folder (or the repo's .git folder) under a name tied to ROOT")
+                        help="save this scan as a snapshot to compare against later. Without FILE it goes to ROOT's "
+                             ".git folder (or the temp folder outside git) under a name tied to ROOT")
     parser.add_argument("--compare", metavar="FILE", nargs="?", const="",
                         help="compare with a snapshot from --save; without FILE, the one --save made for ROOT")
     parser.add_argument("--strict", action="store_true", help="exit 1 when any finding is a warning")

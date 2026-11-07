@@ -123,8 +123,8 @@ scan.py [ROOT] [--format table|json] [--json] [--save [FILE]] [--compare [FILE]]
 ```
 
 - `--save` writes the JSON report as a snapshot, and `--compare` adds a before/after section against one. Without a
-  file name, the snapshot goes to the temp folder under a name tied to ROOT, or into ROOT's `.git` folder when the
-  temp folder isn't writable (some sandboxes), and `--compare` finds it there. Put ROOT before `--save`.
+  file name, the snapshot goes into ROOT's `.git` folder, where git ignores it, or into the temp folder when ROOT
+  isn't a git checkout, under a name tied to ROOT; `--compare` finds it there. Put ROOT before `--save`.
 - `--compare` refuses a snapshot of another folder, or one taken with other `--include-user` or `instructionFiles`
   settings, since its numbers wouldn't be comparable.
 - `--include-user` also counts `~/.claude` (or `$CLAUDE_CONFIG_DIR`): CLAUDE.md, rules, skills, agents and commands,

@@ -118,8 +118,8 @@ python3 skills/rightsize/scripts/scan.py . --save          # snapshot; after you
 python3 skills/rightsize/scripts/scan.py . --include-user  # also count ~/.claude, synced and plugin skills
 ```
 
-`--save` without a file name keeps the snapshot outside the repo's files, under a name tied to the folder, and
-`--compare` finds it again.
+`--save` without a file name keeps the snapshot outside the repo's files (in `.git/rightsize/`, or the temp folder
+outside git), under a name tied to the folder, and `--compare` finds it again.
 
 In GitHub Actions, check out rightsize next to your code:
 
