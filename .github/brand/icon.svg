@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- rightsize: two chevrons squeeze a stack of instruction lines down to size.
+       Grid: 32 units = 1 px at 32 px. Strokes are 96 wide (3 px at 32 px), with
+       round caps and joins; every horizontal edge sits on the 32-unit grid. -->
+  <rect width="1024" height="1024" rx="224" fill="#0C5A4B"/>
+  <g fill="none" stroke="#E1FAF0" stroke-width="96" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M160 368L288 496L160 624"/>
+    <path d="M864 368L736 496L864 624"/>
+    <path d="M432 304H592M432 496H592M432 688H592"/>
+  </g>
+</svg>
