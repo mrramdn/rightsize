@@ -13,6 +13,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   review checklist from CLAUDE.md before writing their new skill files; when those writes were refused, the
   content survived only in git. The skill now applies in two steps: new files first, then edits to the existing
   ones, cutting moved content only where its new file was written. A refused write leaves the content in place.
+- For a repo without agent files, the skill checked only `.gitignore` to see whether agent config stays out of git,
+  and then proposed `CLAUDE.local.md`. A field test on a repo that excludes its agent files in `.git/info/exclude`
+  showed both problems: the check missed the exclude file, and `CLAUDE.local.md` wasn't excluded, so it could get
+  committed while `CLAUDE.md` was already local. The skill now runs `git check-ignore -v` and writes `CLAUDE.md`
+  when it's ignored.
+
+### Changed
+
+- The skill says that a setup step such as `source scripts/env.sh` belongs in CLAUDE.md, because Claude Code's
+  Bash keeps no environment between calls. It also says that auto memory (`MEMORY.md`) loads every session but
+  isn't in the scanner's numbers.
 
 ### Added
 
