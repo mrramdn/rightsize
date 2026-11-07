@@ -6,5 +6,5 @@ expected_outcome: |
   The changes are applied without asking for approval, because the user waived it. CLAUDE.md shrinks to
   stable facts and gotchas; the deploy steps become a skill with name and description frontmatter; the
   tech stack, directory tree, persona and dated notes are gone; the money-in-cents rule and the
-  migrate:fresh danger survive as a line, a hook or a permission rule; the response ends with before/after
-  numbers from the scanner's --compare run.
+  migrate:fresh danger survive as a line, a hook or a permission rule; the response gives before/after
+  token numbers, from --compare where the snapshot survives (it can't in the eval sandbox) or from two scans.
