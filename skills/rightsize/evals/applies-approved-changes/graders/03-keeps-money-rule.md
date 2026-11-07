@@ -1,7 +1,11 @@
 ---
-type: llm
-focus: trace
+type: regex
+target:
+  source: file
+  path: CLAUDE.md
+pattern: cents
+flags: i
 weight: 1
 ---
 
-After the run the repository's context files still say that money is stored as integer cents.
+CLAUDE.md still says that money is stored as integer cents.
