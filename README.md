@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Claude Code skill that audits and slims down the context Claude loads (CLAUDE.md, AGENTS.md, `.claude/rules`,
-skills, subagents) using the Claude 5 context-engineering rules.
+skills, subagents) using Anthropic's context-engineering guidance for current Claude models.
 
 Anthropic [removed over 80% of Claude Code's system prompt](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models)
 for Claude 5 generation models with no measurable loss on their coding evals. Most project instruction files still
@@ -42,11 +42,14 @@ Before → after
 The deploy runbook became a manual-only skill and the review checklist merged into the existing review skill (whose
 one-word description now says when to use it). The persona, "think step by step", the tech stack, the directory tree
 and the dated notes were deleted. Bare rules got their reasons. `migrate:fresh` is now blocked by a hook, `.env` by a
-deny rule, and `config/` edits ask first. The money-in-cents gotcha stayed.
+deny rule, and `config/` edits ask first. The money-in-cents gotcha stayed. (These numbers come from 0.1.1, which
+counted characters / 4; since 0.1.2 the estimates are about 1.5 times higher, closer to what Claude Code reports.)
 
 Before 0.1.1 the scanner was also run against real CLAUDE.md files from public repositories (a Laravel Boost app, a
 Python SDK, a TypeScript SDK) to cut false alarms, and the skill learned to leave generated Laravel Boost guidelines
-to `.ai/guidelines/` instead of editing them in place.
+to `.ai/guidelines/` instead of editing them in place. 0.1.2 fixes what a field test on a Claude Code plugin, a
+desktop app, a new Vite project and a personal `~/.claude` turned up, and its token estimates now track
+`claude plugin details`.
 
 ## Install
 
@@ -108,13 +111,17 @@ things only you know and writes just those. Add `scan.py --strict` to CI to keep
 ### The scanner on its own
 
 ```sh
-python3 skills/rightsize/scripts/scan.py .                     # table report
-python3 skills/rightsize/scripts/scan.py . --json              # machine-readable
-python3 skills/rightsize/scripts/scan.py . --strict            # exit 1 on any warning, for CI
-python3 skills/rightsize/scripts/scan.py . --save before.json  # snapshot; later: --compare before.json
+python3 skills/rightsize/scripts/scan.py .                 # table report
+python3 skills/rightsize/scripts/scan.py . --json          # machine-readable
+python3 skills/rightsize/scripts/scan.py . --strict        # exit 1 on any warning, for CI
+python3 skills/rightsize/scripts/scan.py . --save          # snapshot; after your edits: --compare
+python3 skills/rightsize/scripts/scan.py . --include-user  # also count ~/.claude, synced and plugin skills
 ```
 
-In GitHub Actions:
+`--save` without a file name keeps the snapshot outside the repo's files (in `.git/rightsize/`, or the temp folder
+outside git), under a name tied to the folder, and `--compare` finds it again.
+
+In GitHub Actions, check out rightsize next to your code:
 
 ```yaml
 - uses: actions/checkout@v4
@@ -124,6 +131,8 @@ In GitHub Actions:
     path: .rightsize
 - run: python3 .rightsize/skills/rightsize/scripts/scan.py . --strict
 ```
+
+Or commit a copy of `scan.py` (one file, standard library only) and run that.
 
 ## Checks
 
@@ -165,7 +174,7 @@ skills/rightsize/
 │   ├── enforcement.md    permission rules, PreToolUse hooks, CI
 │   └── checks.md         every scanner check, false positives, usual verdict
 ├── scripts/scan.py       the scanner (standard library, Python 3.8+)
-└── evals/                three cases in the format `claude plugin eval` reads
+└── evals/                four cases in the format `claude plugin eval` reads
 ```
 
 ## Development

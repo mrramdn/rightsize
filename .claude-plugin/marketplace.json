@@ -8,7 +8,7 @@
     {
       "name": "rightsize",
       "source": "./",
-      "description": "Audit and slim down CLAUDE.md, AGENTS.md, rules, skills and subagents with the Claude 5 context-engineering rules."
+      "description": "Audit and slim down CLAUDE.md, AGENTS.md, rules, skills and subagents with Anthropic's context-engineering guidance for current Claude models."
     }
   ]
 }
