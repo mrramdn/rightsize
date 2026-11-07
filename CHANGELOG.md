@@ -33,8 +33,11 @@ Fixes from a field test of 0.1.1 on a Claude Code plugin, a desktop app, a new V
   invented rules in a new CLAUDE.md; checking what tests and CI assert about context files, and when a tool prints
   what a line repeats, before cutting it; `git apply --check` on proposed diffs; testing a hook on both sides before
   offering it; a CI recipe for the scanner.
-- Deterministic eval graders (regex on files and the final message, `tool_used`), so no case depends only on an LLM
-  judge that sees part of the trace.
+- Eval graders reworked after an audit of every grader for false passes and false fails:
+  - Each "nothing changed" check now uses the list of created files, plus a byte-for-byte match of CLAUDE.md.
+  - File, line-count and `--compare` output checks are regexes.
+  - LLM judges read only the final response. A judge on the trace also sees the skill's own example answers, and
+    a `tool_used` check passed although its `--compare` call had failed.
 - CI runs `claude plugin validate --strict`.
 
 ### Fixed
