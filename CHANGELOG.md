@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A plugin icon, `.claude-plugin/icon.png` (1024 px), for the plugin directory. Its SVG source is
+  `.github/brand/icon.svg`.
+
 ## [0.1.2] - 2026-11-07
 
 Fixes from a field test of 0.1.1 on a Claude Code plugin, a desktop app, a new Vite project and a personal
