@@ -5,7 +5,7 @@ license: MIT
 compatibility: Built for Claude Code. scripts/scan.py needs Python 3.8 or newer and uses only the standard library. Other Agent Skills clients that can run shell commands work too.
 metadata:
   author: mrramdn
-  version: "0.1.2"
+  version: "0.1.3"
 ---
 
 # rightsize
@@ -64,8 +64,11 @@ whether Claude would get it wrong without it, and where it belongs.
    apply without a review, go ahead, and list what you changed. Check that each diff applies (`git apply --check`)
    before you show it.
 
-6. **Apply and measure.** Make the approved edits, create any new skill or rule files (matching the repo's existing
-   conventions), then show the before/after:
+6. **Apply and measure.** Apply the approved groups in this order, so a refused write loses nothing:
+   1. Write the new files (skills, rules, settings), matching the repo's existing conventions.
+   2. Edit the existing files. Cut moved content only from places whose new file was written.
+
+   Then show the before/after:
 
    ```bash
    python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" <repo> --compare
@@ -73,8 +76,8 @@ whether Claude would get it wrong without it, and where it belongs.
 
    If the scanner says the snapshot couldn't be saved or read, pass a writable file to both (`--save FILE`,
    `--compare FILE`), or give your estimate and label it as one. If a write is refused (some sandboxes protect
-   `.claude/`), keep the plan: say which file couldn't be written and show its full content, rather than putting
-   that content somewhere else.
+   `.claude/`), keep the plan: leave the content that file would take where it is, say which file couldn't be
+   written and show its full content, rather than putting that content somewhere else.
 
    Write hooks or permission rules only for the enforce items the user approved: settings apply to every session,
    and a too-broad rule blocks work they didn't expect.
