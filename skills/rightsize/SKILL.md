@@ -5,7 +5,7 @@ license: MIT
 compatibility: Built for Claude Code. scripts/scan.py needs Python 3.8 or newer and uses only the standard library. Other Agent Skills clients that can run shell commands work too.
 metadata:
   author: mrramdn
-  version: "0.1.2"
+  version: "0.1.3"
 ---
 
 # rightsize
@@ -64,8 +64,11 @@ whether Claude would get it wrong without it, and where it belongs.
    apply without a review, go ahead, and list what you changed. Check that each diff applies (`git apply --check`)
    before you show it.
 
-6. **Apply and measure.** Make the approved edits, create any new skill or rule files (matching the repo's existing
-   conventions), then show the before/after:
+6. **Apply and measure.** Apply the approved groups in this order, so a refused write loses nothing:
+   1. Write the new files (skills, rules, settings), matching the repo's existing conventions.
+   2. Edit the existing files. Cut moved content only from places whose new file was written.
+
+   Then show the before/after:
 
    ```bash
    python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" <repo> --compare
@@ -73,8 +76,8 @@ whether Claude would get it wrong without it, and where it belongs.
 
    If the scanner says the snapshot couldn't be saved or read, pass a writable file to both (`--save FILE`,
    `--compare FILE`), or give your estimate and label it as one. If a write is refused (some sandboxes protect
-   `.claude/`), keep the plan: say which file couldn't be written and show its full content, rather than putting
-   that content somewhere else.
+   `.claude/`), keep the plan: leave the content that file would take where it is, say which file couldn't be
+   written and show its full content, rather than putting that content somewhere else.
 
    Write hooks or permission rules only for the enforce items the user approved: settings apply to every session,
    and a too-broad rule blocks work they didn't expect.
@@ -121,7 +124,8 @@ under **Needs your call** instead of guessing.
 - **Conflicts need an owner.** Don't pick a side silently. If git history is available, the newer line is more likely
   the intended one; say so and ask.
 - **Personal stays personal.** `CLAUDE.local.md` and `~/.claude` hold one person's preferences. Don't move their
-  content into checked-in files without asking.
+  content into checked-in files without asking. Auto memory (`MEMORY.md` under `~/.claude/projects/`) loads every
+  session too but isn't in the scanner's numbers; point out stale lines in it rather than editing it.
 - **Overrides aren't conflicts.** A nested CLAUDE.md that changes a root rule for its own subtree is doing its job.
 - **Older models need more help.** If the scanner flags a subagent or skill pinned to an older model (RS905), keep
   the scaffolding that model relies on, or ask whether the pin is still wanted.
@@ -138,13 +142,16 @@ under **Needs your call** instead of guessing.
 With no CLAUDE.md yet, or only what `/init` wrote (RS105), the job is writing a lean file, not trimming one:
 
 1. Find what Claude can't learn from the repo: surprising decisions, commands with prerequisites, conventions that
-   differ from the framework's defaults, and anything that must never happen. In a new repo, ask the user; its code
-   and history rarely say. In an established one, read CONTRIBUTING, the docs, CI and recent history first, then ask
-   about what you found.
+   differ from the framework's defaults, and anything that must never happen. A setup step such as
+   `source scripts/env.sh` counts: Claude Code's Bash keeps no environment between calls, so it has to run in the
+   same command every time. In a new repo, ask the user; its code and history rarely say. In an established one,
+   read CONTRIBUTING, the docs, CI and recent history first, then ask about what you found.
 2. Write only those lines, each with its reason. Leave out the stack, the layout and the scripts. If nothing
    qualifies, say so and write nothing. A rule nobody gave you is a question for the user, not a line.
-3. Check where the file may live. Some repos keep agent config out of git (see CONTRIBUTING and `.gitignore`); then
-   propose `CLAUDE.local.md` instead.
+3. Check where the file may live. Some repos keep agent config out of git, and CONTRIBUTING may say so.
+   `git check-ignore -v CLAUDE.md CLAUDE.local.md` shows what `.gitignore`, `.git/info/exclude` and the global
+   excludes file ignore. If CLAUDE.md is ignored, it is already local, so write that. If the config should stay out
+   of git and CLAUDE.md isn't ignored, propose `CLAUDE.local.md` and make sure it is ignored too.
 4. Turn the must-never-happen items into enforcement (`references/enforcement.md`).
 5. Offer `scan.py --strict` in CI, so the file stays lean as the project grows. A CI machine doesn't have this
    skill's folder; `references/enforcement.md` has a recipe.

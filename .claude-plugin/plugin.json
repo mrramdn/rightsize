@@ -1,6 +1,6 @@
 {
   "name": "rightsize",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Audit and slim down the context Claude Code loads (CLAUDE.md, AGENTS.md, rules, skills, subagents) with Anthropic's context-engineering guidance for current Claude models: a deterministic scanner, a reviewed diff, and before/after token estimates.",
   "author": {
     "name": "mrramdn"

@@ -34,7 +34,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 
 # Token estimate. Calibrated against `claude plugin details` on 54 plugin skills (November 2026):
 # it reports one token per 2.6-2.9 characters for names, descriptions and bodies alike, so the
