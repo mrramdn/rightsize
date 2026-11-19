@@ -28,28 +28,40 @@ leaves context where every line earns its place.
 
 ## Example
 
-From the test fixture: a 125-line CLAUDE.md for a Laravel API, two rules files, a review skill and a subagent.
+From the test fixture: a 125-line CLAUDE.md for a Laravel API, two rules files, a review skill and a subagent. This
+is the `--compare` output of a real run of 0.1.3, trimmed to the main lines:
 
 ```text
 Before → after
-  every session  ~922 → ~305 tokens (-67%)
-  findings       22 warn, 11 info → 0 warn, 2 info
-  changed CLAUDE.md  lines 125 → 9 · every session ~826 → ~177
-  changed .claude/skills/code-review/SKILL.md  lines 20 → 16 · every session ~7 → ~54 · on demand ~88 → ~121
-  added   .claude/skills/deploy/SKILL.md  lines 0 → 20 · on demand ~0 → ~144
+  every session  ~1,366 → ~520 tokens (-62%)
+  on demand      ~223 → ~438 tokens (+96%)
+  findings       22 warn, 11 info → 0 warn, 4 info
+  changed CLAUDE.md  lines 125 → 10 · every session ~1224 → ~297
+  changed .claude/skills/code-review/SKILL.md  lines 20 → 17 · every session ~10 → ~79 · on demand ~130 → ~169
+  added   .claude/skills/deploy/SKILL.md  lines 0 → 18 · on demand ~0 → ~215
+  removed .claude/rules/frontend.md  lines 9 → 0 · on demand ~48 → ~0
 ```
 
 The deploy runbook became a manual-only skill and the review checklist merged into the existing review skill (whose
-one-word description now says when to use it). The persona, "think step by step", the tech stack, the directory tree
-and the dated notes were deleted. Bare rules got their reasons. `migrate:fresh` is now blocked by a hook, `.env` by a
-deny rule, and `config/` edits ask first. The money-in-cents gotcha stayed. (These numbers come from 0.1.1, which
-counted characters / 4; since 0.1.2 the estimates are about 1.5 times higher, closer to what Claude Code reports.)
+one-word description now says when to use it). The pasted example controller became a pointer to the real one. The
+persona, "think step by step", the tech stack, the directory tree and the dated notes were deleted, and so was a
+rules file whose two lines named a folder and a script that don't exist. Bare rules got their reasons.
+`migrate:fresh` is now blocked by a hook, `.env` by a deny rule, and `config/` edits ask first. The money-in-cents
+gotcha stayed. Content that moved into skills now loads on demand, which is why that number grows. Token estimates
+are characters ÷ 2.7.
 
 Before 0.1.1 the scanner was also run against real CLAUDE.md files from public repositories (a Laravel Boost app, a
 Python SDK, a TypeScript SDK) to cut false alarms, and the skill learned to leave generated Laravel Boost guidelines
 to `.ai/guidelines/` instead of editing them in place. 0.1.2 fixes what a field test on a Claude Code plugin, a
 desktop app, a new Vite project and a personal `~/.claude` turned up, and its token estimates now track
 `claude plugin details`.
+
+## Status
+
+Early: 0.1.3. The scanner is covered by unit and end-to-end tests that CI runs on Python 3.8 and 3.13, and the skill
+has four eval cases in the format `claude plugin eval` reads. It has been tuned on real CLAUDE.md files and field
+tests, but checks, wording and estimates may still change between 0.1.x releases. Changes are listed in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
@@ -87,12 +99,13 @@ Claude scans, reads, classifies and shows a report like this, followed by the di
 ```markdown
 ## rightsize: acme-shop
 
-Every session ~922 → ~305 tokens (est.) · warnings 22 → 0
+Every session ~1,366 → ~520 tokens (est.) · warnings 22 → 0
 
-### Rewrite (4)
-- `CLAUDE.md:39` "NEVER add comments to code." → "Match the comment density of the surrounding code."
-### Move (2)
-- `CLAUDE.md:99-108` deploy steps → new skill `.claude/skills/deploy/SKILL.md`
+### Rewrite (5)
+- `CLAUDE.md:39` "NEVER add comments to code." → "Match the comment density of the surrounding code; most files
+  here have none."
+### Move (3)
+- `CLAUDE.md:97-108` deploy steps → new manual-only skill `.claude/skills/deploy/SKILL.md`
 ### Enforce (3)
 - `CLAUDE.md:44` migrate:fresh → PreToolUse hook `.claude/hooks/block-destructive.py`
 ### Needs your call
